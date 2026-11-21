@@ -1,0 +1,8 @@
+[package]
+name = "gojo"
+version = "0.1.0"
+edition = "2024"
+description = "A simple chess engine"
+
+[dependencies]
+cozy-chess = { git = "https://github.com/analog-hors/cozy-chess/" }
