@@ -545,7 +545,7 @@ mod tests {
             lines,
             vec![
                 "id name Gojo",
-                "id author Gojo",
+                "id author Ian Gui",
                 "option name UCI_Chess960 type check default false",
                 "uciok",
                 "readyok",
