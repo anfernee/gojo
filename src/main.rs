@@ -1,7 +1,11 @@
+mod eval;
+
 use std::io::{self, BufRead, Write};
 
 use cozy_chess::util::{display_uci_move, parse_uci_move};
 use cozy_chess::{Board, Color, File, Move, Piece, Rank, Square};
+
+use crate::eval::{Evaluator, ZeroEvaluator};
 
 const ENGINE_NAME: &str = "Gojo";
 const ENGINE_AUTHOR: &str = "Ian Gui";
@@ -36,16 +40,23 @@ struct GoParams {
     perft: Option<u32>,
 }
 
-struct UciEngine {
+struct UciEngine<E: Evaluator = ZeroEvaluator> {
     board: Board,
     history: Vec<u64>,
     debug: bool,
     chess960: bool,
     pending_search: Option<PendingSearch>,
+    evaluator: E,
 }
 
-impl UciEngine {
+impl UciEngine<ZeroEvaluator> {
     fn new() -> Self {
+        Self::with_evaluator(ZeroEvaluator)
+    }
+}
+
+impl<E: Evaluator> UciEngine<E> {
+    fn with_evaluator(evaluator: E) -> Self {
         let board = Board::default();
         let history = vec![board.hash()];
         Self {
@@ -54,6 +65,7 @@ impl UciEngine {
             debug: false,
             chess960: false,
             pending_search: None,
+            evaluator,
         }
     }
 
@@ -212,8 +224,9 @@ impl UciEngine {
         let bestmove = self.search(&params);
 
         if let Some(mv) = bestmove {
+            let score = self.evaluator.evaluate(&self.board);
             let mv_str = format_move(&self.board, self.chess960, mv);
-            writeln!(out, "info depth 1 score cp 0 nodes 1 pv {mv_str}")?;
+            writeln!(out, "info depth 1 score cp {score} nodes 1 pv {mv_str}")?;
         }
 
         if params.infinite {
@@ -724,5 +737,20 @@ mod tests {
         assert_eq!(params.movetime, Some(2500));
         assert!(params.ponder);
         assert!(params.infinite);
+    }
+
+    #[test]
+    fn custom_evaluator_score_is_reported_in_go_info() {
+        let mut engine = UciEngine::with_evaluator(|b: &Board| b.occupied().len() as eval::Score);
+        let mut out = Vec::new();
+        engine
+            .run(Cursor::new(b"position startpos\ngo\nquit\n"), &mut out)
+            .unwrap();
+        let output = String::from_utf8(out).unwrap();
+        assert!(
+            output
+                .lines()
+                .any(|l| l.starts_with("info depth 1 score cp 32 nodes 1 pv "))
+        );
     }
 }
