@@ -1,0 +1,7 @@
+- Black checkmated is infinity, White checkmated is -infinity
+- Piece Counting (White is positive, Black is negative)
+  - Queen is 9
+  - Rook is 5
+  - Bishop is 3.1
+  - Knight is 3
+  - Pawn is 1

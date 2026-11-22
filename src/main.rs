@@ -5,7 +5,7 @@ use std::io::{self, BufRead, Write};
 use cozy_chess::util::{display_uci_move, parse_uci_move};
 use cozy_chess::{Board, Color, File, Move, Piece, Rank, Square};
 
-use crate::eval::{Evaluator, ZeroEvaluator};
+use crate::eval::{Evaluator, SimpleEvaluator};
 
 const ENGINE_NAME: &str = "Gojo";
 const ENGINE_AUTHOR: &str = "Ian Gui";
@@ -40,7 +40,7 @@ struct GoParams {
     perft: Option<u32>,
 }
 
-struct UciEngine<E: Evaluator = ZeroEvaluator> {
+struct UciEngine<E: Evaluator = SimpleEvaluator> {
     board: Board,
     history: Vec<u64>,
     debug: bool,
@@ -49,9 +49,9 @@ struct UciEngine<E: Evaluator = ZeroEvaluator> {
     evaluator: E,
 }
 
-impl UciEngine<ZeroEvaluator> {
+impl UciEngine<SimpleEvaluator> {
     fn new() -> Self {
-        Self::with_evaluator(ZeroEvaluator)
+        Self::with_evaluator(SimpleEvaluator)
     }
 }
 

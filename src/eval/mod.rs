@@ -1,7 +1,17 @@
+mod simple;
+
 use cozy_chess::Board;
 
-/// Position evaluation score in centipawns, from the perspective of the side to move.
+pub use simple::SimpleEvaluator;
+
+/// Position evaluation score in centipawns (positive favors White, negative favors Black).
 pub type Score = i32;
+
+/// Positive infinity score (e.g. Black is checkmated).
+pub const INF: Score = Score::MAX;
+
+/// Negative infinity score (e.g. White is checkmated), symmetric with [`INF`].
+pub const NEG_INF: Score = -INF;
 
 /// Abstraction for a chess position evaluation function.
 ///
@@ -20,6 +30,7 @@ where
 }
 
 /// Placeholder evaluator that always returns `0`.
+#[allow(dead_code)]
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ZeroEvaluator;
 
