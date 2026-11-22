@@ -1,4 +1,5 @@
 mod eval;
+mod search;
 
 use std::io::{self, BufRead, Write};
 
@@ -6,9 +7,11 @@ use cozy_chess::util::{display_uci_move, parse_uci_move};
 use cozy_chess::{Board, Color, File, Move, Piece, Rank, Square};
 
 use crate::eval::{Evaluator, SimpleEvaluator};
+use crate::search::{MinimaxSearcher, SearchConfig, SearchEngine, SearchResult, Searcher};
 
 const ENGINE_NAME: &str = "Gojo";
 const ENGINE_AUTHOR: &str = "Ian Gui";
+const DEFAULT_SEARCH_DEPTH: u32 = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SearchMode {
@@ -40,23 +43,30 @@ struct GoParams {
     perft: Option<u32>,
 }
 
-struct UciEngine<E: Evaluator = SimpleEvaluator> {
+struct UciEngine<S: Searcher = MinimaxSearcher, E: Evaluator = SimpleEvaluator> {
     board: Board,
     history: Vec<u64>,
     debug: bool,
     chess960: bool,
     pending_search: Option<PendingSearch>,
-    evaluator: E,
+    search_engine: SearchEngine<S, E>,
 }
 
-impl UciEngine<SimpleEvaluator> {
+impl UciEngine<MinimaxSearcher, SimpleEvaluator> {
     fn new() -> Self {
-        Self::with_evaluator(SimpleEvaluator)
+        Self::with_search_engine(SearchEngine::new(MinimaxSearcher::new(), SimpleEvaluator))
     }
 }
 
-impl<E: Evaluator> UciEngine<E> {
+impl<E: Evaluator> UciEngine<MinimaxSearcher, E> {
+    #[cfg(test)]
     fn with_evaluator(evaluator: E) -> Self {
+        Self::with_search_engine(SearchEngine::new(MinimaxSearcher::new(), evaluator))
+    }
+}
+
+impl<S: Searcher, E: Evaluator> UciEngine<S, E> {
+    fn with_search_engine(search_engine: SearchEngine<S, E>) -> Self {
         let board = Board::default();
         let history = vec![board.hash()];
         Self {
@@ -65,7 +75,7 @@ impl<E: Evaluator> UciEngine<E> {
             debug: false,
             chess960: false,
             pending_search: None,
-            evaluator,
+            search_engine,
         }
     }
 
@@ -221,12 +231,20 @@ impl<E: Evaluator> UciEngine<E> {
             return self.run_perft_divide(depth, out);
         }
 
-        let bestmove = self.search(&params);
+        let result = self.search(&params);
+        let bestmove = result.best_move;
 
         if let Some(mv) = bestmove {
-            let score = self.evaluator.evaluate(&self.board);
+            let uci_score = match self.board.side_to_move() {
+                Color::White => result.score,
+                Color::Black => result.score.saturating_neg(),
+            };
             let mv_str = format_move(&self.board, self.chess960, mv);
-            writeln!(out, "info depth 1 score cp {score} nodes 1 pv {mv_str}")?;
+            writeln!(
+                out,
+                "info depth {} score cp {} nodes {} pv {}",
+                result.depth, uci_score, result.nodes, mv_str
+            )?;
         }
 
         if params.infinite {
@@ -251,6 +269,7 @@ impl<E: Evaluator> UciEngine<E> {
     }
 
     fn handle_stop(&mut self, out: &mut impl Write) -> io::Result<()> {
+        self.search_engine.stop();
         if let Some(pending) = self.pending_search.take() {
             self.write_bestmove(&pending.board, pending.bestmove, out)?;
         }
@@ -378,21 +397,12 @@ impl<E: Evaluator> UciEngine<E> {
         params
     }
 
-    fn search(&self, params: &GoParams) -> Option<Move> {
-        if !params.searchmoves.is_empty() {
-            return params
-                .searchmoves
-                .iter()
-                .copied()
-                .find(|&mv| self.board.is_legal(mv));
-        }
-
-        let mut selected = None;
-        self.board.generate_moves(|moves| {
-            selected = moves.into_iter().next();
-            selected.is_some()
-        });
-        selected
+    fn search(&mut self, params: &GoParams) -> SearchResult {
+        let config = SearchConfig {
+            depth: params.depth.unwrap_or(DEFAULT_SEARCH_DEPTH),
+            searchmoves: params.searchmoves.clone(),
+        };
+        self.search_engine.search_with_config(&self.board, &config)
     }
 
     fn run_perft_divide(&self, depth: u32, out: &mut impl Write) -> io::Result<()> {
@@ -744,13 +754,26 @@ mod tests {
         let mut engine = UciEngine::with_evaluator(|b: &Board| b.occupied().len() as eval::Score);
         let mut out = Vec::new();
         engine
-            .run(Cursor::new(b"position startpos\ngo\nquit\n"), &mut out)
+            .run(
+                Cursor::new(b"position startpos\ngo depth 1\nquit\n"),
+                &mut out,
+            )
             .unwrap();
         let output = String::from_utf8(out).unwrap();
         assert!(
             output
                 .lines()
-                .any(|l| l.starts_with("info depth 1 score cp 32 nodes 1 pv "))
+                .any(|l| l.starts_with("info depth 1 score cp 32 nodes "))
         );
+    }
+
+    #[test]
+    fn uci_go_finds_mate_in_one_with_minimax() {
+        let (_, output) = run_script(
+            "position fen 6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1\n\
+             go depth 1\n\
+             quit\n",
+        );
+        assert!(output.lines().any(|l| l == "bestmove d1d8"));
     }
 }
